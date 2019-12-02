@@ -125,7 +125,7 @@ namespace bomber
                     return e->clientnum;
             }
             float fx = k >= 2 ? 360 : (d->ai ? d->ai->views[0] : curfov), fy = k >= 2 ? 360 : (d->ai ? d->ai->views[1] : fovy);
-            loopi(numdyns) if((e = (gameent *)game::iterdynents(i)) && e->team == d->team && e->state == CS_ALIVE && (k%2 || e->actortype != A_BOT))
+            loopi(numdyns) if((e = (gameent *)game::iterdynents(i)) && e != d && e->team == d->team && e->state == CS_ALIVE && (k%2 || e->actortype != A_BOT))
             {
                 if(getsight(d->o, d->yaw, d->pitch, e->o, dest, 1e16f, fx, fy))
                 {
@@ -150,13 +150,16 @@ namespace bomber
 
     bool dropaffinity(gameent *d)
     {
-        if(!carryaffinity(d) || (!d->action[AC_AFFINITY] && d->actiontime[AC_AFFINITY] <= 0)) return false;
-        if(d->action[AC_AFFINITY]) return true;
+        if(!carryaffinity(d) || (!d->action[AC_AFFINITY] && !d->action[AC_THROW])) return false;
         vec o = d->headpos(), inertia = vec(d->yaw*RAD, d->pitch*RAD).mul(bomberspeed).add(vec(d->vel).add(d->falling).mul(bomberrelativity));
-        bool guided = m_team(game::gamemode, game::mutators) && bomberlockondelay && lastmillis-d->actiontime[AC_AFFINITY] >= bomberlockondelay;
-        client::addmsg(N_DROPAFFIN, "ri8", d->clientnum, guided ? findtarget(d) : -1, int(o.x*DMF), int(o.y*DMF), int(o.z*DMF), int(inertia.x*DMF), int(inertia.y*DMF), int(inertia.z*DMF));
+        bool guided = m_team(game::gamemode, game::mutators) && d->action[AC_AFFINITY];
+        int target = guided ? findtarget(d) : -1;
+        if(!guided || target >= 0)
+            client::addmsg(N_DROPAFFIN, "ri8", d->clientnum, target, int(o.x*DMF), int(o.y*DMF), int(o.z*DMF), int(inertia.x*DMF), int(inertia.y*DMF), int(inertia.z*DMF));
         d->action[AC_AFFINITY] = false;
         d->actiontime[AC_AFFINITY] = 0;
+        d->action[AC_THROW] = false;
+        d->actiontime[AC_THROW] = 0;
         return true;
     }
 
@@ -174,7 +177,7 @@ namespace bomber
     FVAR(IDF_PERSIST, bomberreticlesize, 0, 0.1f, 1.f);
     void drawonscreen(int w, int h, float blend)
     {
-        if(!gs_playing(game::gamestate) || !m_team(game::gamemode, game::mutators) || !bomberlockondelay || game::focus->state != CS_ALIVE || !game::focus->action[AC_AFFINITY] || lastmillis-game::focus->actiontime[AC_AFFINITY] < bomberlockondelay)
+        if(!gs_playing(game::gamestate) || !m_team(game::gamemode, game::mutators) || game::focus->state != CS_ALIVE)
             return;
         loopv(st.flags)
         {
@@ -246,7 +249,7 @@ namespace bomber
                 if(game::focus == game::player1)
                 {
                     pushfont(important ? "emphasis" : "reduced");
-                    ty += draw_textf(important ? "\fs\fzuyPress \fs\fw\f{=affinity}\fS to throw the bomb\fS" : "Press \fs\fw\f{=affinity}\fS to throw the bomb", tx, ty, int(FONTW*hud::noticepadx), int(FONTH*hud::noticepady), tr, tg, tb, int(255*blend), TEXT_CENTERED);
+                    ty += draw_textf(important ? "\fs\fzuyPress \fs\fw\f{=affinity}\fS to pass the bomb or \fs\fw\f{=throw}\fS to throw it\fS" : "Press \fs\fw\f{=affinity}\fS to to pass the bomb or \fs\fw\f{=throw}\fS to throw it\fS", tx, ty, int(FONTW*hud::noticepadx), int(FONTH*hud::noticepady), tr, tg, tb, int(255*blend), TEXT_CENTERED);
                     popfont();
                 }
                 break;
@@ -587,23 +590,11 @@ namespace bomber
         if(f.owner)
         {
             if(!d->ai || f.owner != d) return;
-            int hp = max(d->gethealth(game::gamemode, game::mutators)/3, 1);
-            bool forever = m_ffa(game::gamemode, game::mutators) || d->health >= hp || findtarget(d) < 0;
-            if(!carrytime && forever) return;
-            int takemillis = lastmillis-f.taketime, length = forever ? carrytime-550-bomberlockondelay : min(carrytime, 1000);
-            if(takemillis >= length)
-            {
-                if(d->action[AC_AFFINITY])
-                {
-                    if((carrytime && takemillis >= carrytime-500) || lastmillis-d->actiontime[AC_AFFINITY] >= bomberlockondelay)
-                        d->action[AC_AFFINITY] = false;
-                }
-                else
-                {
-                    d->action[AC_AFFINITY] = true;
-                    d->actiontime[AC_AFFINITY] = lastmillis;
-                }
-            }
+            bool lowhp = d->health < d->gethealth(game::gamemode, game::mutators)/3;
+            bool wanttopass = lowhp && !m_ffa(game::gamemode, game::mutators);
+            bool timeisup = carrytime && lastmillis-f.taketime >= carrytime-500;
+            if(wanttopass && findtarget(d) >= 0) d->action[AC_AFFINITY] = true;
+            else if(timeisup) d->action[AC_THROW] = true;
             return;
         }
         if(!f.droptime && m_bb_assault(game::gamemode, game::mutators) && d->team == T_ALPHA && bomberassaultreset) return;

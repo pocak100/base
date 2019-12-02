@@ -141,6 +141,7 @@ namespace physics
     ICOMMAND(0, special, "D", (int *n), doaction(AC_SPECIAL, *n!=0));
     ICOMMAND(0, drop, "D", (int *n), doaction(AC_DROP, *n!=0));
     ICOMMAND(0, affinity, "D", (int *n), doaction(AC_AFFINITY, *n!=0));
+    ICOMMAND(0, throw, "D", (int *n), doaction(AC_THROW, *n!=0));
 
     int carryaffinity(gameent *d)
     {
